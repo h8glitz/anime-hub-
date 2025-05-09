@@ -391,51 +391,52 @@ export async function getAnimeVideo(animeId: string, seasonNumber = 1, episodeNu
     if (playerType === "aniboom") {
       // Для AniBoom используем API для поиска аниме
       try {
-        const animeTitle = anime.titleOrig || anime.title;
-        console.log('[getAnimeVideo] Название аниме для поиска в AniBoom:', animeTitle);
-        const searchUrl = `/api/proxy/aniboom?endpoint=search&query=${encodeURIComponent(animeTitle)}`;
-        
-        console.log('[getAnimeVideo] Поиск аниме в AniBoom (URL):', searchUrl);
-        
-        const searchResponse = await fetch(searchUrl, { cache: "no-store" });
-        const searchData = await searchResponse.json();
-        console.log('[getAnimeVideo] Сырой ответ от AniBoom (поиск):', JSON.stringify(searchData, null, 2));
-        
-        if (searchData && searchData.results && searchData.results.length > 0) {
-          // Берем первый результат поиска
-          const aniBoomId = searchData.results[0].id;
-          console.log('[getAnimeVideo] ID аниме на AniBoom (из первого результата поиска):', aniBoomId);
-          
-          // Получаем данные о сериях
-          const episodesUrl = `/api/proxy/aniboom?endpoint=anime&id=${aniBoomId}`;
-          console.log('[getAnimeVideo] Запрос данных об эпизодах AniBoom (URL):', episodesUrl);
-          const episodesResponse = await fetch(episodesUrl, { cache: "no-store" });
-          const episodesData = await episodesResponse.json();
-          console.log('[getAnimeVideo] Сырой ответ от AniBoom (эпизоды):', JSON.stringify(episodesData, null, 2));
-          
-          if (episodesData && episodesData.episodes) {
-            // Находим нужный эпизод
-            const targetEpisode = episodesData.episodes.find((ep: any) => 
-              ep.number === episodeNumber && ep.season === seasonNumber
-            ) || episodesData.episodes[0];
-            
-            if (targetEpisode) {
-              videoUrl = `https://aniboom.one/embed/${aniBoomId}?episode=${targetEpisode.id}`;
-              console.log('[getAnimeVideo] Найден URL AniBoom:', videoUrl);
+        // Формируем варианты названия для поиска
+        const titleVariants = [
+          anime.titleOrig,
+          anime.title,
+          anime.title ? anime.title.replace(/\([^)]*\)/g, "").trim() : undefined, // без скобок
+          anime.title ? anime.title.split(":")[0].trim() : undefined, // до двоеточия
+          anime.title && anime.year ? `${anime.title} ${anime.year}` : undefined,
+        ].filter(Boolean);
+        let found = false;
+        let searchLog = [];
+        for (const variant of titleVariants) {
+          if (!variant) continue;
+          const searchUrl = `/api/proxy/aniboom?endpoint=search&query=${encodeURIComponent(variant)}`;
+          console.log(`[getAnimeVideo] AniBoom поиск по варианту: ${variant}`);
+          const searchResponse = await fetch(searchUrl, { cache: "no-store" });
+          const searchData = await searchResponse.json();
+          searchLog.push({variant, searchData});
+          if (searchData && searchData.results && searchData.results.length > 0) {
+            // Перебираем все результаты поиска
+            for (const result of searchData.results) {
+              const aniBoomId = result.id;
+              const episodesUrl = `/api/proxy/aniboom?endpoint=anime&id=${aniBoomId}`;
+              const episodesResponse = await fetch(episodesUrl, { cache: "no-store" });
+              const episodesData = await episodesResponse.json();
+              if (episodesData && episodesData.episodes && episodesData.episodes.length > 0) {
+                // Находим нужный эпизод
+                const targetEpisode = episodesData.episodes.find((ep: any) => 
+                  ep.number === episodeNumber && ep.season === seasonNumber
+                ) || episodesData.episodes[0];
+                if (targetEpisode) {
+                  videoUrl = `https://aniboom.one/embed/${aniBoomId}?episode=${targetEpisode.id}`;
+                  console.log(`[getAnimeVideo] AniBoom найден: вариант='${variant}', id=${aniBoomId}, episodeId=${targetEpisode.id}`);
+                  found = true;
+                  break;
+                }
+              }
             }
           }
+          if (found) break;
         }
-        
         if (!videoUrl) {
-          console.warn('[getAnimeVideo] Не удалось найти аниме в AniBoom. URL не будет сформирован для Aniboom.');
-          // Не меняем playerType, просто videoUrl останется пустым
-          // finalPlayerType остается "aniboom", но videoUrl будет пуст
+          console.warn('[getAnimeVideo] AniBoom не найден по вариантам:', titleVariants, searchLog);
         }
       } catch (error) {
         console.error('[getAnimeVideo] Ошибка при поиске в AniBoom:', error);
         console.warn('[getAnimeVideo] URL не будет сформирован для Aniboom из-за ошибки.');
-         // Не меняем playerType, просто videoUrl останется пустым
-         // finalPlayerType остается "aniboom", но videoUrl будет пуст
       }
     }
     

@@ -23,6 +23,8 @@ model User {
   hashedPassword String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  history       History[]
+  collection    Collection[]
 
   accounts      Account[]
   sessions      Session[]
@@ -125,4 +127,20 @@ model Favorite {
   animeId   String
 
   @@unique([userId, animeId])
+}
+
+model History {
+  id        Int    @id @default(autoincrement())
+  user      User   @relation(fields: [userId], references: [id])
+  userId    String
+  animeId   String
+  watchedAt DateTime @default(now())
+}
+
+model Collection {
+  id        Int    @id @default(autoincrement())
+  user      User   @relation(fields: [userId], references: [id])
+  userId    String
+  animeId   String
+  addedAt   DateTime @default(now())
 }
