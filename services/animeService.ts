@@ -1,4 +1,4 @@
-import type { Anime, AnimeVideo, AnimeListParams, Season, Episode, Comment } from "@/types"
+import type { Anime, AnimeVideo, AnimeListParams, Season, Episode, Comment, PlayerType } from "@/types"
 
 // Jikan API base URL
 const JIKAN_API_URL = "https://api.jikan.moe/v4"
@@ -175,6 +175,7 @@ export async function getAnimeById(id: string): Promise<Anime> {
       }
     }
 
+    console.log('[getAnimeById] вызов для id:', id);
     const url = `${API_BASE_URL}/search?token=${API_KEY}&id=${id}&with_material_data=true&with_episodes=true`
 
     // Add retry logic
@@ -200,16 +201,22 @@ export async function getAnimeById(id: string): Promise<Anime> {
     }
 
     if (!response || !response.ok) {
+      console.error('[getAnimeById] fetch error:', response?.status);
       throw new Error(`API error: ${response?.status || "Network error"}`)
     }
 
     const data = await response.json()
+    console.log('[getAnimeById] ответ Kodik:', data);
 
     if (!data.results || !data.results[0]) {
+      console.error('[getAnimeById] Нет результатов в ответе Kodik:', data);
       throw new Error("Anime not found")
     }
 
     const item = data.results[0]
+
+    // Логируем весь объект item для отладки
+    console.log('[getAnimeById] item из Kodik:', item);
 
     // Process seasons and episodes
     const seasons: Season[] = []
@@ -236,7 +243,7 @@ export async function getAnimeById(id: string): Promise<Anime> {
           episodes.push({
             id: `${seasonNum}_1`,
             number: 1,
-            title: `Эпизод 1`,
+            title: "Эпизод 1",
             link: item.link,
             screenshots: [],
           })
@@ -319,7 +326,7 @@ export async function getAnimeById(id: string): Promise<Anime> {
 }
 
 // Function to fetch anime video
-export async function getAnimeVideo(animeId: string, seasonNumber = 1, episodeNumber = 1): Promise<AnimeVideo> {
+export async function getAnimeVideo(animeId: string, seasonNumber = 1, episodeNumber = 1, playerType: PlayerType = "kodik"): Promise<AnimeVideo> {
   try {
     // First get the anime details to get the seasons and episodes
     const anime = await getAnimeById(animeId)
@@ -369,24 +376,125 @@ export async function getAnimeVideo(animeId: string, seasonNumber = 1, episodeNu
       ]
     }
 
+    // Сортируем эпизоды по возрастанию номера
+    const sortedEpisodes = [...season.episodes].sort((a, b) => a.number - b.number)
     // Find the requested episode
-    const episode = season.episodes.find((e) => e.number === episodeNumber) || season.episodes[0]
+    const episode = sortedEpisodes.find((e) => e.number === episodeNumber) || sortedEpisodes[0]
 
-    // Get the video URL from the episode
-    let videoUrl = episode.link
-
-    if (!videoUrl) {
-      // If no specific episode link is available, try to use the anime's main link
-      if (anime.link) {
-        videoUrl = anime.link
-      } else {
-        throw new Error("No video URL available for this episode")
+    // Логируем выбранный эпизод и ссылку
+    console.log('[getAnimeVideo] Выбран эпизод:', episode);
+    
+    let videoUrl = "";
+    let finalPlayerType = playerType; // Используем новую переменную для определения типа плеера в ответе
+    
+    // Выбираем источник видео в зависимости от выбранного плеера
+    if (playerType === "aniboom") {
+      // Для AniBoom используем API для поиска аниме
+      try {
+        const animeTitle = anime.titleOrig || anime.title;
+        console.log('[getAnimeVideo] Название аниме для поиска в AniBoom:', animeTitle);
+        const searchUrl = `/api/proxy/aniboom?endpoint=search&query=${encodeURIComponent(animeTitle)}`;
+        
+        console.log('[getAnimeVideo] Поиск аниме в AniBoom (URL):', searchUrl);
+        
+        const searchResponse = await fetch(searchUrl, { cache: "no-store" });
+        const searchData = await searchResponse.json();
+        console.log('[getAnimeVideo] Сырой ответ от AniBoom (поиск):', JSON.stringify(searchData, null, 2));
+        
+        if (searchData && searchData.results && searchData.results.length > 0) {
+          // Берем первый результат поиска
+          const aniBoomId = searchData.results[0].id;
+          console.log('[getAnimeVideo] ID аниме на AniBoom (из первого результата поиска):', aniBoomId);
+          
+          // Получаем данные о сериях
+          const episodesUrl = `/api/proxy/aniboom?endpoint=anime&id=${aniBoomId}`;
+          console.log('[getAnimeVideo] Запрос данных об эпизодах AniBoom (URL):', episodesUrl);
+          const episodesResponse = await fetch(episodesUrl, { cache: "no-store" });
+          const episodesData = await episodesResponse.json();
+          console.log('[getAnimeVideo] Сырой ответ от AniBoom (эпизоды):', JSON.stringify(episodesData, null, 2));
+          
+          if (episodesData && episodesData.episodes) {
+            // Находим нужный эпизод
+            const targetEpisode = episodesData.episodes.find((ep: any) => 
+              ep.number === episodeNumber && ep.season === seasonNumber
+            ) || episodesData.episodes[0];
+            
+            if (targetEpisode) {
+              videoUrl = `https://aniboom.one/embed/${aniBoomId}?episode=${targetEpisode.id}`;
+              console.log('[getAnimeVideo] Найден URL AniBoom:', videoUrl);
+            }
+          }
+        }
+        
+        if (!videoUrl) {
+          console.warn('[getAnimeVideo] Не удалось найти аниме в AniBoom. URL не будет сформирован для Aniboom.');
+          // Не меняем playerType, просто videoUrl останется пустым
+          // finalPlayerType остается "aniboom", но videoUrl будет пуст
+        }
+      } catch (error) {
+        console.error('[getAnimeVideo] Ошибка при поиске в AniBoom:', error);
+        console.warn('[getAnimeVideo] URL не будет сформирован для Aniboom из-за ошибки.');
+         // Не меняем playerType, просто videoUrl останется пустым
+         // finalPlayerType остается "aniboom", но videoUrl будет пуст
       }
     }
+    
+    // Если выбран Kodik ИЛИ (выбран Aniboom, но его URL не был получен)
+    if (playerType === "kodik" || (playerType === "aniboom" && !videoUrl)) {
+      if (playerType === "aniboom" && !videoUrl) {
+        console.log('[getAnimeVideo] Aniboom URL не найден, пытаемся использовать Kodik как запасной вариант (если это разрешено логикой выше)');
+        // Если мы хотим здесь явно переключиться на Kodik для URL, но сохранить playerType в ответе как aniboom (если он был запрошен)
+        // или же, если мы хотим, чтобы VideoPlayer сам решал, что делать при пустом URL для aniboom
+        // ТЕКУЩАЯ ЛОГИКА: если aniboom запрошен и не найден, videoUrl останется пустым, и VideoPlayer должен это обработать.
+        // Если же мы хотим всегда возвращать Kodik URL как fallback, то нужно изменить finalPlayerType на "kodik"
+        // Пока оставляем так, что если Aniboom не найден, videoUrl пустой, finalPlayerType = "aniboom"
+      } 
+      // Этот блок кода больше не нужен в таком виде, если мы не хотим автоматически переключаться на Kodik
+      // Оставим его для Kodik или если мы решим явно использовать Kodik как fallback
 
-    // Fix common issues with Kodik URLs
-    if (videoUrl && videoUrl.includes("kodik") && !videoUrl.includes("http")) {
-      videoUrl = `https:${videoUrl}`
+      // Формируем URL для Kodik, только если playerType изначально был "kodik"
+      // или если мы решим сделать его запасным вариантом и изменим finalPlayerType
+      if (playerType === "kodik") { // Строго для Kodik
+        videoUrl = episode.link || anime.link || "";
+        finalPlayerType = "kodik"; // Убеждаемся, что тип плеера в ответе Kodik
+        console.log('[getAnimeVideo] Исходный videoUrl Kodik:', videoUrl);
+
+        // Добавляем номер эпизода в URL, если его там нет
+        if (videoUrl && !/episode(=|%3D)\d+/i.test(videoUrl)) {
+          if (videoUrl.includes('?')) {
+            videoUrl += `&episode=${episode.number}`
+          } else {
+            videoUrl += `?episode=${episode.number}`
+          }
+          console.log(`[getAnimeVideo] Модифицированный videoUrl для эпизода ${episode.number}:`, videoUrl);
+        } else if (videoUrl && /episode(=|%3D)\d+/i.test(videoUrl)) {
+          // Если URL уже содержит параметр episode, заменяем его на текущий
+          videoUrl = videoUrl.replace(/episode(=|%3D)\d+/i, `episode=${episode.number}`);
+          console.log(`[getAnimeVideo] Обновлен параметр episode в URL для эпизода ${episode.number}:`, videoUrl);
+        }
+
+        // Fix common issues with Kodik URLs
+        if (videoUrl && videoUrl.includes("kodik") && !videoUrl.includes("http")) {
+          videoUrl = `https:${videoUrl}`
+        }
+        
+        // Подготовка URL для поддержки высокого качества и апскейлинга
+        if (videoUrl && videoUrl.includes("kodik")) {
+          // Добавляем базовые параметры для улучшения качества и отключения рекламы
+          const hasQueryParams = videoUrl.includes("?");
+          const paramPrefix = hasQueryParams ? "&" : "?";
+          
+          // Добавляем параметры для максимального качества и поддержки апскейлинга
+          videoUrl += `${paramPrefix}max_quality=true&force_hd=true`;
+          
+          // Добавляем параметры для поддержки ИИ-апскейлинга
+          if (!videoUrl.includes("enable_ai_upscale")) {
+            videoUrl += `&enable_ai_upscale=true&force_ai=true`;
+          }
+          
+          console.log('[getAnimeVideo] Финальный URL с параметрами качества:', videoUrl);
+        }
+      }
     }
 
     return {
@@ -396,6 +504,7 @@ export async function getAnimeVideo(animeId: string, seasonNumber = 1, episodeNu
       currentSeason: season.number,
       currentEpisode: episode.number,
       seasons: anime.seasons,
+      playerType: finalPlayerType // Возвращаем finalPlayerType
     }
   } catch (error) {
     console.error("Error fetching anime video:", error)
@@ -804,3 +913,248 @@ export async function hasLikedComment(commentId: string, userId: string): Promis
     return false
   }
 }
+
+// Функция для получения порядка просмотра аниме по франшизе
+export async function getWatchOrder(title: string): Promise<Anime[]> {
+  try {
+    // Очищаем название от лишних символов и сезонов для поиска
+    const cleanTitle = title
+      .replace(/\([^)]*\)/g, '') // Удаляем текст в скобках
+      .replace(/\[[^\]]*\]/g, '') // Удаляем текст в квадратных скобках (ТВ-1, ТВ-2)
+      .replace(/сезон|season|\d+$/gi, '') // Удаляем упоминания сезонов
+      .replace(/\s+/g, ' ') // Удаляем лишние пробелы
+      .trim();
+    
+    // Извлекаем основное название франшизы (без указания сезона, фильма и т.д.)
+    const franchiseTitle = cleanTitle
+      .split(':')[0] // Берем основное название до двоеточия
+      .split(' -')[0] // Удаляем части после дефиса (часто указывают подзаголовок)
+      .trim();
+    
+    // Проверяем, есть ли в названии указание на сезон в формате [ТВ-N]
+    const tvSeasonMatch = title.match(/\[ТВ-(\d+)\]|\[TV-(\d+)\]/i);
+    let hasSeasonIndicator = false;
+    let seasonNumber = 0;
+    
+    if (tvSeasonMatch) {
+      hasSeasonIndicator = true;
+      seasonNumber = parseInt(tvSeasonMatch[1] || tvSeasonMatch[2], 10);
+      console.log(`[getWatchOrder] Обнаружен сезон ${seasonNumber} в названии "${title}"`);
+    }
+    
+    console.log(`[getWatchOrder] Поиск аниме по франшизе: "${franchiseTitle}"`);
+    
+    // Делаем три запроса для максимального охвата
+    
+    // 1. Поиск по полному названию
+    const fullTitleResults = await getAnimeList({
+      search: cleanTitle,
+      limit: 15,
+    });
+    
+    // 2. Поиск по названию франшизы (более общий)
+    const franchiseResults = await getAnimeList({
+      search: franchiseTitle,
+      limit: 20,
+    });
+    
+    // 3. Специальный поиск для формата [ТВ-N]
+    let tvFormatResults: Anime[] = [];
+    if (hasSeasonIndicator) {
+      // Ищем другие сезоны с тем же базовым названием
+      const tvSearchTerm = `${franchiseTitle} ТВ`;
+      console.log(`[getWatchOrder] Дополнительный поиск по формату ТВ: "${tvSearchTerm}"`);
+      tvFormatResults = await getAnimeList({
+        search: tvSearchTerm,
+        limit: 10,
+      });
+    }
+    
+    // Объединяем результаты, избегая дубликатов по ID
+    const existingIds = new Set<string>();
+    const combinedResults: Anime[] = [];
+    
+    // Вспомогательная функция для добавления результатов без дубликатов
+    const addUniqueResults = (results: Anime[]) => {
+      results.forEach(anime => {
+        if (!existingIds.has(anime.id)) {
+          combinedResults.push(anime);
+          existingIds.add(anime.id);
+        }
+      });
+    };
+    
+    // Добавляем результаты из всех запросов
+    addUniqueResults(fullTitleResults);
+    addUniqueResults(franchiseResults);
+    addUniqueResults(tvFormatResults);
+    
+    if (combinedResults.length === 0) {
+      console.log(`[getWatchOrder] Не найдено аниме по запросам`);
+      return [];
+    }
+    
+    console.log(`[getWatchOrder] Найдено ${combinedResults.length} аниме (до фильтрации)`);
+    
+    // Создаем список ключевых слов для проверки релевантности
+    const franchiseKeywords = franchiseTitle
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+    
+    // Функция для проверки релевантности названия
+    const isRelevantTitle = (animeTitle: string): boolean => {
+      if (!animeTitle) return false;
+      
+      const normalizedTitle = animeTitle.toLowerCase();
+      
+      // Проверяем наличие основного названия франшизы в названии аниме
+      if (normalizedTitle.includes(franchiseTitle.toLowerCase())) {
+        return true;
+      }
+      
+      // Проверяем наличие ключевых слов
+      const matchingWords = franchiseKeywords.filter(word => 
+        normalizedTitle.includes(word)
+      );
+      
+      // Если название франшизы короткое (1-2 слова), требуем совпадения всех слов
+      if (franchiseKeywords.length <= 2) {
+        return matchingWords.length === franchiseKeywords.length;
+      }
+      
+      // Иначе требуем совпадения хотя бы половины слов
+      return matchingWords.length >= Math.ceil(franchiseKeywords.length / 2);
+    };
+    
+    // Функция для определения номера сезона из названия
+    const extractSeasonNumber = (animeTitle: string): number => {
+      // Проверяем формат [ТВ-N]
+      const tvMatch = animeTitle.match(/\[ТВ-(\d+)\]|\[TV-(\d+)\]/i);
+      if (tvMatch) {
+        return parseInt(tvMatch[1] || tvMatch[2], 10);
+      }
+      
+      // Проверяем формат "N сезон"
+      const seasonMatch = animeTitle.match(/(\d+)\s*сезон/i);
+      if (seasonMatch) {
+        return parseInt(seasonMatch[1], 10);
+      }
+      
+      // Проверяем формат "Season N"
+      const engSeasonMatch = animeTitle.match(/Season\s*(\d+)/i);
+      if (engSeasonMatch) {
+        return parseInt(engSeasonMatch[1], 10);
+      }
+      
+      // Проверяем формат с римскими цифрами
+      const romanMatch = animeTitle.match(/\s(I{1,3}|IV|V|VI{1,3}|IX|X)$/i);
+      if (romanMatch) {
+        const roman = romanMatch[1].toUpperCase();
+        const romanValues: {[key: string]: number} = {
+          'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5,
+          'VI': 6, 'VII': 7, 'VIII': 8, 'IX': 9, 'X': 10
+        };
+        return romanValues[roman] || 0;
+      }
+      
+      return 0; // Не удалось определить номер сезона
+    };
+    
+    // Функция для нормализации названия (для проверки дубликатов)
+    const normalizeTitle = (animeTitle: string): string => {
+      return animeTitle
+        .toLowerCase()
+        .replace(/\([^)]*\)/g, '') // Удаляем текст в скобках
+        .replace(/\[[^\]]*\]/g, '') // Удаляем текст в квадратных скобках
+        .replace(/сезон|season|\d+$/gi, '') // Удаляем упоминания сезонов
+        .replace(/ova|ona|movie|special|film|фильм|спешл/gi, '') // Удаляем типы аниме
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+    
+    // Фильтруем результаты по релевантности
+    const relevantAnime = combinedResults.filter(anime => 
+      isRelevantTitle(anime.title) || isRelevantTitle(anime.titleOrig || '')
+    );
+    
+    console.log(`[getWatchOrder] После фильтрации по релевантности осталось ${relevantAnime.length} аниме`);
+    
+    // Создаем карту для группировки аниме по нормализованному названию и номеру сезона
+    const groupedAnime = new Map<string, Map<number, Anime>>();
+    
+    // Группируем аниме по нормализованному названию и номеру сезона
+    relevantAnime.forEach(anime => {
+      const normalizedTitle = normalizeTitle(anime.title);
+      const seasonNum = extractSeasonNumber(anime.title);
+      
+      if (!groupedAnime.has(normalizedTitle)) {
+        groupedAnime.set(normalizedTitle, new Map<number, Anime>());
+      }
+      
+      const seasonMap = groupedAnime.get(normalizedTitle)!;
+      
+      // Если уже есть аниме с таким же номером сезона, выбираем лучшее
+      if (seasonMap.has(seasonNum)) {
+        const existingAnime = seasonMap.get(seasonNum)!;
+        const existingYear = parseInt(existingAnime.year || '0', 10);
+        const currentYear = parseInt(anime.year || '0', 10);
+        const existingEpisodes = existingAnime.episodes || 0;
+        const currentEpisodes = anime.episodes || 0;
+        
+        // Предпочитаем аниме с большим количеством эпизодов или более новое
+        if (currentEpisodes > existingEpisodes || 
+            (currentEpisodes === existingEpisodes && currentYear > existingYear)) {
+          seasonMap.set(seasonNum, {
+            ...anime,
+            seasonNumber: seasonNum
+          });
+        }
+      } else {
+        // Если нет аниме с таким номером сезона, добавляем новое
+        seasonMap.set(seasonNum, {
+          ...anime,
+          seasonNumber: seasonNum
+        });
+      }
+    });
+    
+    // Собираем все уникальные аниме из групп
+    const uniqueAnime: Anime[] = [];
+    groupedAnime.forEach(seasonMap => {
+      seasonMap.forEach(anime => {
+        uniqueAnime.push(anime);
+      });
+    });
+    
+    // Сортируем сначала по номеру сезона, затем по году выпуска
+    const sortedAnime = [...uniqueAnime].sort((a, b) => {
+      const seasonA = a.seasonNumber || 0;
+      const seasonB = b.seasonNumber || 0;
+      
+      // Если у обоих есть номер сезона, сортируем по нему
+      if (seasonA > 0 && seasonB > 0) {
+        return seasonA - seasonB;
+      }
+      
+      // Если только у одного есть номер сезона
+      if (seasonA > 0) return -1;
+      if (seasonB > 0) return 1;
+      
+      // Иначе сортируем по году
+      const yearA = parseInt(a.year || '0', 10);
+      const yearB = parseInt(b.year || '0', 10);
+      return yearA - yearB;
+    });
+    
+    console.log(`[getWatchOrder] После удаления дубликатов осталось ${sortedAnime.length} аниме`);
+    
+    // Если осталось слишком много результатов, возможно это не связанные аниме
+    // Ограничиваем до 15 результатов
+    return sortedAnime.length > 15 ? sortedAnime.slice(0, 15) : sortedAnime;
+  } catch (error) {
+    console.error("Error getting watch order:", error);
+    return [];
+  }
+}
+

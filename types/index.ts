@@ -11,13 +11,18 @@ export interface User {
   role?: "user" | "moderator" | "admin" | "beta"
 }
 
+// Типы доступных плееров
+export type PlayerType = "kodik" | "aniboom"
+
 // User preferences
 export interface UserPreferences {
   theme?: "dark" | "light" | "system"
   autoplay?: boolean
   notifications?: boolean
-  quality?: "auto" | "360p" | "480p" | "720p" | "1080p"
+  quality?: "auto" | "360p" | "480p" | "720p" | "1080p" | "1440p" | "2160p"
   language?: string
+  useUpscaling?: boolean
+  preferredPlayer?: PlayerType
 }
 
 // User statistics
@@ -50,6 +55,8 @@ export interface Anime {
   worldArtId?: string | null
   type?: string
   seasons: Season[]
+  isCurrent?: boolean
+  seasonNumber?: number
 }
 
 // Season type
@@ -77,6 +84,7 @@ export interface AnimeVideo {
   currentSeason: number
   currentEpisode: number
   seasons: Season[]
+  playerType?: PlayerType
 }
 
 // Parameters for anime list API

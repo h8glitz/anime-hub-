@@ -30,8 +30,10 @@ const initializeDemoUser = () => {
         theme: "dark",
         autoplay: true,
         notifications: true,
-        quality: "auto",
+        quality: "1080p",
         language: "ru",
+        useUpscaling: true, // Включаем апскейлинг по умолчанию
+        preferredPlayer: "kodik" // По умолчанию используем Kodik
       },
       role: "beta", // Demo user gets beta access
     }
@@ -121,8 +123,10 @@ export async function register(username: string, email: string, password: string
       theme: "dark",
       autoplay: true,
       notifications: true,
-      quality: "auto",
+      quality: "1080p",
       language: "ru",
+      useUpscaling: true, // Включаем апскейлинг по умолчанию
+      preferredPlayer: "kodik" // По умолчанию используем Kodik
     },
   }
 

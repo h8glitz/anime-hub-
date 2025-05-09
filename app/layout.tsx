@@ -21,7 +21,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
       <body className={`${inter.className} bg-gray-900 text-white min-h-screen flex flex-col`}>
         <AuthProvider>
           <ThemeProvider>

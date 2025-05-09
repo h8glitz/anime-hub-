@@ -22,10 +22,16 @@ export const useAuth = () => useContext(AuthContext)
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isMounted, setIsMounted] = useState(false)
+
+  // Инициализация только на клиенте после первого рендера
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   useEffect(() => {
-    // Check if user is stored in localStorage
-    if (typeof window !== 'undefined') {
+    // Проверяем пользователя только после монтирования компонента на клиенте
+    if (isMounted) {
       const storedUser = localStorage.getItem("user")
       if (storedUser) {
         try {
@@ -35,20 +41,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           localStorage.removeItem("user")
         }
       }
+      setIsLoading(false)
     }
-    setIsLoading(false)
-  }, [])
+  }, [isMounted])
 
   // Update localStorage when user changes
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isMounted && typeof window !== 'undefined') {
       if (user) {
         localStorage.setItem("user", JSON.stringify(user))
       } else {
         localStorage.removeItem("user")
       }
     }
-  }, [user])
+  }, [user, isMounted])
 
   const logout = () => {
     setUser(null)

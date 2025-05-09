@@ -61,7 +61,9 @@ export default function ProfilePage() {
   const [autoplay, setAutoplay] = useState(true)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [selectedTheme, setSelectedTheme] = useState<"dark" | "light" | "system">("dark")
-  const [quality, setQuality] = useState<"auto" | "360p" | "480p" | "720p" | "1080p">("auto")
+  const [quality, setQuality] = useState<"auto" | "360p" | "480p" | "720p" | "1080p" | "1440p" | "2160p">("auto")
+  const [useUpscaling, setUseUpscaling] = useState(true)
+  const [preferredPlayer, setPreferredPlayer] = useState<"kodik" | "aniboom">("kodik")
 
   useEffect(() => {
     if (!user) {
@@ -84,7 +86,15 @@ export default function ProfilePage() {
       
       // Типизация для качества
       const qualityValue = user.preferences.quality || "auto"
-      setQuality(qualityValue as "auto" | "360p" | "480p" | "720p" | "1080p")
+      setQuality(qualityValue as "auto" | "360p" | "480p" | "720p" | "1080p" | "1440p" | "2160p")
+      
+      // Апскейлинг
+      setUseUpscaling(user.preferences.useUpscaling !== false)
+      
+      // Предпочитаемый плеер
+      if (user.preferences.preferredPlayer) {
+        setPreferredPlayer(user.preferences.preferredPlayer)
+      }
     }
 
     const fetchUserData = async () => {
@@ -171,6 +181,8 @@ export default function ProfilePage() {
         notifications: notificationsEnabled,
         theme: selectedTheme,
         quality,
+        useUpscaling,
+        preferredPlayer,
       })
 
       setUser(updatedUser)
@@ -641,15 +653,32 @@ export default function ProfilePage() {
                           <label className="block text-gray-300 mb-2">Качество видео</label>
                           <select
                             value={quality}
-                            onChange={(e) => setQuality(e.target.value as "auto" | "360p" | "480p" | "720p" | "1080p")}
+                            onChange={(e) => setQuality(e.target.value as "auto" | "360p" | "480p" | "720p" | "1080p" | "1440p" | "2160p")}
                             className="w-full bg-gray-700/70 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 border border-gray-600"
                           >
                             <option value="auto">Авто</option>
                             <option value="360p">360p</option>
                             <option value="480p">480p</option>
                             <option value="720p">720p</option>
-                            <option value="1080p">1080p</option>
+                            <option value="1080p">1080p (Full HD)</option>
+                            <option value="1440p">1440p (2K)</option>
+                            <option value="2160p">2160p (4K)</option>
                           </select>
+                        </div>
+
+                        <div className="mt-4">
+                          <label className="flex items-center justify-between text-gray-300 mb-2">
+                            <span>Апскейлинг видео (ИИ-улучшение)</span>
+                            <button
+                              onClick={() => setUseUpscaling(!useUpscaling)}
+                              className={`w-12 h-6 rounded-full p-1 transition-colors ${useUpscaling ? "bg-orange-500" : "bg-gray-700"}`}
+                            >
+                              <div
+                                className={`w-4 h-4 rounded-full bg-white transform transition-transform ${useUpscaling ? "translate-x-6" : "translate-x-0"}`}
+                              ></div>
+                            </button>
+                          </label>
+                          <p className="text-sm text-gray-500">Улучшает качество видео с помощью технологий ИИ (работает для любого разрешения)</p>
                         </div>
 
                         <div className="pt-4">

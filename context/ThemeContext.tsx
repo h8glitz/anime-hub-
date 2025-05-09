@@ -17,7 +17,8 @@ const ThemeContext = createContext<ThemeContextType>({
 export const useTheme = () => useContext(ThemeContext)
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setTheme] = useState<Theme>("system")
+  const [theme, setTheme] = useState<Theme>("dark")
+  const [isMounted, setIsMounted] = useState(false)
 
   // Определяем системную тему
   const getSystemTheme = () => {
@@ -27,41 +28,43 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     return 'dark'
   }
 
-  // При инициализации читаем тему из localStorage
+  // Инициализация только на клиенте после первого рендера
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const storedTheme = localStorage.getItem("theme") as Theme | null
-      if (storedTheme) {
-        setTheme(storedTheme)
-      }
+    setIsMounted(true)
+    // При инициализации читаем тему из localStorage
+    const storedTheme = localStorage.getItem("theme") as Theme | null
+    if (storedTheme) {
+      setTheme(storedTheme)
+    } else {
+      setTheme("system")
     }
   }, [])
 
-  // Применяем тему
+  // Применяем тему только после монтирования компонента
   useEffect(() => {
+    if (!isMounted) return;
+    
     let appliedTheme = theme
     if (theme === 'system') {
       appliedTheme = getSystemTheme()
     }
     document.documentElement.classList.toggle("dark", appliedTheme === "dark")
-    if (typeof window !== 'undefined') {
-      localStorage.setItem("theme", theme)
-    }
-  }, [theme])
+    localStorage.setItem("theme", theme)
+  }, [theme, isMounted])
 
   // Следим за изменением системной темы, если выбрана system
   useEffect(() => {
-    if (theme !== 'system') return
+    if (!isMounted || theme !== 'system') return;
+    
     const handler = () => {
       const appliedTheme = getSystemTheme()
       document.documentElement.classList.toggle("dark", appliedTheme === "dark")
     }
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      const mq = window.matchMedia('(prefers-color-scheme: dark)')
-      mq.addEventListener('change', handler)
-      return () => mq.removeEventListener('change', handler)
-    }
-  }, [theme])
+    
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme, isMounted])
 
   return <ThemeContext.Provider value={{ theme, setTheme }}>{children}</ThemeContext.Provider>
 }

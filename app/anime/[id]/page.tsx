@@ -1,12 +1,14 @@
 "use client"
 
 import { useEffect, useState, Suspense } from "react"
+import React from "react"
 import {
   getAnimeById,
   isAnimeInCollection,
   addAnimeToCollection,
   removeAnimeFromCollection,
   getAnimeRecommendations,
+  getWatchOrder,
 } from "@/services/animeService"
 import VideoPlayer from "@/components/anime/VideoPlayer"
 import CommentSection from "@/components/anime/CommentSection"
@@ -25,6 +27,7 @@ import {
   Award,
   Bookmark,
   AlertTriangle,
+  ListOrdered,
 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import Link from "next/link"
@@ -34,42 +37,76 @@ import AnimeCard from "@/components/anime/AnimeCard"
 // Компонент для получения параметров из URL
 function AnimePageContent({ animeId }: { animeId: string }) {
   const [anime, setAnime] = useState<Anime | null>(null)
+  const [isInCollection, setIsInCollection] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [inCollection, setInCollection] = useState(false)
   const [recommendations, setRecommendations] = useState<Anime[]>([])
+  const [watchOrder, setWatchOrder] = useState<Anime[]>([])
   const { user } = useAuth()
   const searchParams = useSearchParams()
-
-  // Get season and episode from query params
-  const initialSeason = Number.parseInt(searchParams.get("season") || "1", 10)
-  const initialEpisode = Number.parseInt(searchParams.get("episode") || "1", 10)
+  const seasonParam = searchParams.get("season")
+  const episodeParam = searchParams.get("episode")
+  
+  const initialSeason = seasonParam ? parseInt(seasonParam, 10) : 1
+  const initialEpisode = episodeParam ? parseInt(episodeParam, 10) : 1
 
   useEffect(() => {
-    let isMounted = true;
-    setLoading(true);
-    setError(null);
-    setAnime(null);
-    setRecommendations([]);
-    (async () => {
+    const fetchAnime = async () => {
       try {
-        const animeData = await getAnimeById(animeId);
-        if (!isMounted) return;
-        setAnime(animeData);
-        if (user) {
-          const inCol = await isAnimeInCollection(user.id, animeId);
-          if (isMounted) setInCollection(inCol);
+        setLoading(true)
+        const animeData = await getAnimeById(animeId)
+        setAnime(animeData)
+
+        // Загружаем рекомендации
+        try {
+          const recommendationsData = await getAnimeRecommendations(animeId)
+          setRecommendations(recommendationsData)
+        } catch (err) {
+          console.error("Error fetching recommendations:", err)
+          setRecommendations([])
         }
-        const recs = await getAnimeRecommendations(animeId);
-        if (isMounted) setRecommendations(recs);
-      } catch (err: any) {
-        if (isMounted) setError(err.message || "Ошибка загрузки аниме");
-      } finally {
-        if (isMounted) setLoading(false);
+
+        // Загружаем порядок просмотра для всех аниме
+        try {
+          const watchOrderData = await getWatchOrder(animeData.title)
+          
+          // Проверяем, есть ли текущее аниме в списке
+          const currentAnimeInList = watchOrderData.some(item => item.id === animeId)
+          
+          // Если текущего аниме нет в списке, добавляем его
+          if (!currentAnimeInList) {
+            // Создаем список только с текущим аниме
+            setWatchOrder([animeData])
+          } else {
+            // Помечаем текущее аниме в списке, но не удаляем его
+            const markedWatchOrder = watchOrderData.map(item => ({
+              ...item,
+              isCurrent: item.id === animeId
+            }))
+            setWatchOrder(markedWatchOrder)
+          }
+        } catch (err) {
+          console.error("Error fetching watch order:", err)
+          // Если произошла ошибка, все равно показываем текущее аниме в списке
+          setWatchOrder([animeData])
+        }
+
+        // Проверяем, добавлено ли аниме в коллекцию
+        if (user) {
+          const inCollection = await isAnimeInCollection(user.id, animeId)
+          setIsInCollection(inCollection)
+        }
+
+        setLoading(false)
+      } catch (err) {
+        console.error("Error fetching anime:", err)
+        setError("Не удалось загрузить информацию об аниме")
+        setLoading(false)
       }
-    })();
-    return () => { isMounted = false; };
-  }, [animeId, user]);
+    }
+
+    fetchAnime()
+  }, [animeId, user])
 
   const handleCollectionToggle = async () => {
     if (!user) {
@@ -79,12 +116,12 @@ function AnimePageContent({ animeId }: { animeId: string }) {
     }
 
     try {
-      if (inCollection) {
+      if (isInCollection) {
         await removeAnimeFromCollection(user.id, animeId)
-        setInCollection(false)
+        setIsInCollection(false)
       } else {
         await addAnimeToCollection(user.id, animeId)
-        setInCollection(true)
+        setIsInCollection(true)
       }
     } catch (err) {
       console.error("Error toggling collection:", err)
@@ -173,12 +210,12 @@ function AnimePageContent({ animeId }: { animeId: string }) {
                 <button
                   onClick={handleCollectionToggle}
                   className={`px-4 py-2 rounded-lg flex items-center ${
-                    inCollection
+                    isInCollection
                       ? "bg-orange-600 hover:bg-orange-700 text-white"
                       : "bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white"
                   } transition-colors`}
                 >
-                  {inCollection ? (
+                  {isInCollection ? (
                     <>
                       <Bookmark className="w-5 h-5 mr-2 fill-white" /> В коллекции
                     </>
@@ -327,6 +364,41 @@ function AnimePageContent({ animeId }: { animeId: string }) {
         </div>
 
         <div>
+          {/* Блок порядка просмотра */}
+          {watchOrder.length > 0 && (
+            <div className="bg-gray-800/50 rounded-xl p-6 shadow-lg border border-gray-700/50 mb-6">
+              <h2 className="text-xl font-bold text-white mb-4 flex items-center">
+                <ListOrdered className="w-5 h-5 mr-2 text-orange-500" />
+                Порядок просмотра
+              </h2>
+
+              <div className="space-y-4">
+                {watchOrder.map((item, index) => (
+                  <div 
+                    key={item.id} 
+                    className={`group ${item.id === animeId || item.isCurrent ? 'bg-gray-700/40 rounded-lg p-2' : ''}`}
+                  >
+                    <Link href={`/anime/${item.id}`} className="flex">
+                      <div className="w-10 h-10 bg-gray-700 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <span className="text-white font-bold">{index + 1}</span>
+                      </div>
+                      <div className="ml-3 flex-1">
+                        <h3 className={`font-medium line-clamp-1 ${item.id === animeId || item.isCurrent ? 'text-orange-500' : 'text-white group-hover:text-orange-500 transition-colors'}`}>
+                          {item.title}
+                        </h3>
+                        <div className="text-gray-500 text-sm">
+                          {item.year} • {item.type === "anime" ? "ТВ-сериал" : item.type === "movie" ? "Фильм" : item.type}
+                          {(item.id === animeId || item.isCurrent) && <span className="ml-2 text-orange-500">• Текущий</span>}
+                        </div>
+                      </div>
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Блок рекомендаций */}
           <div className="bg-gray-800/50 rounded-xl p-6 shadow-lg border border-gray-700/50">
             <h2 className="text-xl font-bold text-white mb-4">Рекомендации</h2>
 
@@ -383,14 +455,16 @@ function AnimePageContent({ animeId }: { animeId: string }) {
 }
 
 // Основной компонент с Suspense для useSearchParams
-export default function AnimePage({ params }: { params: { id: string } }) {
+export default function AnimePage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = React.use(params);
+  
   return (
     <Suspense fallback={
       <div className="container mx-auto px-4 py-20 text-center">
         <div className="loader mx-auto"></div>
       </div>
     }>
-      <AnimePageContent animeId={params.id} />
+      <AnimePageContent animeId={resolvedParams.id} />
     </Suspense>
   )
 }

@@ -10,8 +10,8 @@ interface AnimeCardProps {
 export default function AnimeCard({ anime, viewMode = "grid" }: AnimeCardProps) {
   if (viewMode === "list") {
     return (
-      <div className="anime-card bg-gray-800/80 rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-700/50">
-        <div className="flex flex-col md:flex-row">
+      <div className="anime-card bg-gray-800/80 rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 border border-gray-700/50 w-full">
+        <div className="flex flex-col md:flex-row w-full">
           <div className="relative md:w-48 h-64 md:h-auto">
             <img
               src={anime.poster || "/placeholder.svg?height=300&width=200"}
@@ -37,7 +37,7 @@ export default function AnimeCard({ anime, viewMode = "grid" }: AnimeCardProps) 
             </div>
           </div>
 
-          <div className="p-5 flex flex-col flex-grow">
+          <div className="p-5 flex flex-col flex-grow w-full">
             <h3 className="text-lg font-bold text-white mb-2 line-clamp-2">{anime.title}</h3>
 
             <p className="text-gray-400 text-sm mb-4 line-clamp-3">{anime.description || "Описание отсутствует"}</p>
